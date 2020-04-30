@@ -4,8 +4,8 @@ from . import controllers
 from . import models
 
 __author__ = 'Israel Calderón Aguilar'
-__copyright__ = '(C) 2019 All rights reserved by Madkting'
-__version__ = '12.0'
+__copyright__ = '(C) 2020 All rights reserved by Yuju'
+__version__ = '13.0'
 __maintainer__ = 'Israel Calderón Aguilar'
-__email__ = 'israel@madkting.com'
+__email__ = 'israel.calderon@yuju.io'
 __status__ = 'Development'

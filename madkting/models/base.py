@@ -22,7 +22,6 @@ class Base(models.AbstractModel):
             logger.exception(ex)
         return record
 
-    @api.multi
     def write(self, vals):
         record = super(Base, self).write(vals)
         try:
