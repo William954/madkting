@@ -54,10 +54,8 @@ class ProductTemplate(models.Model):
                     'weight': float,
                     'cost': float,
                     'initial_stock': int, # TODO: implement initial stock functionality
-                    'attributes': { # TODO: return this part of the structure
-                        'color': 'blue',
-                        'size': 'S'
-                    }
+                    'color': 'blue',
+                    'size': 'S'
                 }
             ]
         }
@@ -66,11 +64,12 @@ class ProductTemplate(models.Model):
         :rtype: dict
         """
         variation_attributes = product_data.pop('variation_attributes', None)
-        variations = product_data.pop('variations', None)
+        variations = product_data.pop('variations', [])
         has_variations = True if variation_attributes else False
         taxes = product_data.pop('taxes', None)
-        cost = product_data.pop('cost', None)
         weight_unit = product_data.pop('weight_unit', None)
+        if 'image' in product_data:
+            product_data['image_1920'] = product_data.pop('image', None)
         # stock = product_data.pop('initial_stock', None)
         if taxes:
             taxes_id = self.env['account.tax'] \
@@ -79,9 +78,9 @@ class ProductTemplate(models.Model):
 
         if weight_unit:
             weight_uom = self.env['uom.uom'].get_uom_by_name(weight_unit)
-            product_data['weight_uom_id'] = weight_uom
+            product_data['weight_uom_name'] = weight_uom.name
 
-        product_data['standard_price'] = cost
+        product_data['standard_price'] = product_data.pop('cost', None)
 
         # create a product simple
         if not has_variations:
@@ -99,8 +98,7 @@ class ProductTemplate(models.Model):
 
         # create product with variations
         # validate variations
-        product_template_attribute_lines = list()
-        attribute_value_ids = dict()
+        product_template_attribute_lines = []
 
         for attribute_name, values in variation_attributes.items():
             attribute_line = dict()
@@ -109,8 +107,7 @@ class ProductTemplate(models.Model):
                 try:
                     # create attribute
                     attribute = self.env['product.attribute'].create({'name': attribute_name,
-                                                                      'create_variant': 'always',
-                                                                      'type': 'select'})
+                                                                      'create_variant': 'always'})
                     # create new attribute values
                     self.env['product.attribute.value'].create(
                         [{'name': val, 'attribute_id': attribute.id} for val in values]
@@ -140,14 +137,16 @@ class ProductTemplate(models.Model):
                     # if new values has been created for this attribute
                     # invalidate the cache in order to get value_ids updated
                     attribute.invalidate_cache()
-
-            # assign attribute lines for product creation
-            attribute_value_ids[attribute.name] = {
-                value.name: value.id for value in attribute.value_ids if value.name in values
+            
+            attribute_line = {
+                'attribute_id': attribute.id,
+                'value_ids': [
+                    (4, val.id) for val in attribute.value_ids if val.name in values
+                ]
             }
-            attribute_line['attribute_id'] = attribute.id
-            attribute_line['value_ids'] = [(6, 0, [val.id for val in attribute.value_ids if val.name in values])]
-            product_template_attribute_lines.append(attribute_line)
+            product_template_attribute_lines.append((0, 0, attribute_line))
+
+        product_data['attribute_line_ids'] = product_template_attribute_lines
 
         try:
             new_template = self.create(product_data)
@@ -156,40 +155,28 @@ class ProductTemplate(models.Model):
             return results.error_result(code='product_template_create_error',
                                         description='Product couldn\'t be created because '
                                                     'of the following exception: {}'.format(ex))
-        for line in product_template_attribute_lines:
-            line['product_tmpl_id'] = new_template.id
 
-        try:
-            self.env['product.template.attribute.line'].create(product_template_attribute_lines)
-        except Exception as ex:
-            logger.exception(ex)
-            return results.error_result('template_attribute_line_create_error',
-                                        'Error creating lines {}'.format(ex))
-        # create variations
-        for variation in variations:
-            value_ids = list()
-            # variation_stock = variation.pop('initial_stock', None)
-            variation['standard_price'] = variation.pop('cost', None)
-            for variation_att in variation_attributes:
-                value = variation.pop(variation_att)
-                value_ids.append(attribute_value_ids[variation_att][value])
-            logger.info(value_ids)
-            try:
-                new_variation = self.env['product.product'].create({
-                    'product_tmpl_id': new_template.id,
-                    'attribute_value_ids': [(6, 0, value_ids)]
-                })
-            except Exception as ex:
-                logger.exception(ex)
-                new_template.unlink()
-                return results.error_result('variation_create_error', str(ex))
-            else:
-                new_variation.write(variation)
-                # if variation_stock:
-                #    pass # TODO: implement initial stock functionality
-        new_product_data = new_template.product_variant_id \
-                                       .get_data_with_variations()
-        return results.success_result(new_product_data)
+        for product_variant in new_template.product_variant_ids:
+            data = product_variant.get_data()
+            variation_data = None
+            
+            for v in range(len(variations)):
+                if all( variations[v][attrib] == value for attrib, value in data.get('attributes').items() ):
+                    variation_data = variations.pop(v)
+                    break
+
+            if variation_data:
+                variation_data['standard_price'] = variation_data.pop('cost', None)
+
+                if 'image' in variation_data:
+                    variation_data['image_1920'] = variation_data.pop('image', None)
+
+                for attrib in data.get('attributes'):
+                    variation_data.pop(attrib)
+
+                product_variant.write(variation_data)
+        
+        return results.success_result(new_template.product_variant_id.get_data_with_variations())
 
     def change_product_status(self, template_id, active):
         """

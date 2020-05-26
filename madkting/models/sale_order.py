@@ -30,7 +30,7 @@ class SaleOrder(models.Model):
             'company_id': int,
             'date_order': str,
             'validity_date': str, # YYYY-mm-dd
-            'confirmation_date': str, # YYYY-mm-dd HH:dd:ss
+            'confirmation_date': str, # deprecated
             'note': str,
             'partner_id': int,
             'invoice_status': str,
@@ -84,6 +84,7 @@ class SaleOrder(models.Model):
         :return: new sale.order
         :rtype: sale.order
         """
+        order_data.pop('confirmation_date', None)
         config_settings = self.env['res.config.settings']
         picking_policy = config_settings.default_picking_policy
         tax_rate = kwargs.get('tax_rate')
@@ -244,7 +245,7 @@ class SaleOrder(models.Model):
                                         description='order {} doesn\'t exists'.format(order_id))
         order.ensure_one()
         updatable_attributes = ['note', 'partner_shipping_id', 'partner_invoice_id',
-                                'validity_date', 'confirmation_date']
+                                'validity_date']
         updates = {attribute: value for attribute, value in order_data.items() if attribute in updatable_attributes}
 
         if not updates:
@@ -465,7 +466,7 @@ class SaleOrder(models.Model):
                 return results.success_result(data=invoice_data)
 
         try:
-            ids = order.sudo().action_invoice_create(grouped=True)
+            invoice = order.sudo()._create_invoices(grouped=True)
         except exceptions.AccessError as err:
             return results.error_result(
                 code='access_error',
@@ -477,12 +478,8 @@ class SaleOrder(models.Model):
                                         description='The sale order cannot be invoiced because of '
                                                     'the following exception: {}'.format(ex))
         else:
-            invoice = self.env['account.invoice'].search([('id', '=', ids[0])])
-            if not invoice:
-                return results.error_result(code='retrieve_invoice_error',
-                                            description='Cannot retrieve invoice for sale order')
             invoice.ensure_one()
-            invoice.action_invoice_open()
+            invoice.post()
             invoice_data = invoice.copy_data()[0]
             invoice_data['id'] = invoice.id
             invoice_data['name'] = invoice.name
@@ -500,7 +497,7 @@ class SaleOrder(models.Model):
         :return: True on success or False if the invoice is already charged
         :rtype: bool
         """
-        invoice = self.env['account.invoice'].search([('id', '=', invoice_id)])
+        invoice = self.env['account.move'].search([('id', '=', invoice_id)])
 
         if not invoice:
             return results.error_result(code='invoice_not_exists',
@@ -544,7 +541,7 @@ class SaleOrder(models.Model):
                 )
         try:
             payment = payment_model.create({'amount': invoice.amount_total,
-                                            'pay_date': datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S'),
+                                            'payment_date': datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S'),
                                             'payment_type': 'inbound',
                                             'payment_method_id': payment_method_id,
                                             'journal_id': journal_id,
@@ -646,7 +643,7 @@ class SaleOrder(models.Model):
                         warnings.append(
                             'invoice couldn\'t be cancelled: {}'.format(ex)
                         )
-            return results.success_result(data=None, warnings=warnings)
+            return results.success_result(data=False, warnings=warnings)
 
     def _validate_order_fields(self, order_data):
         """
@@ -660,7 +657,7 @@ class SaleOrder(models.Model):
             'company_id': int,
             'date_order': str,
             'validity_date': str,
-            'confirmation_date': str,
+            # 'confirmation_date': str, # deprecated
             'note': str,
             'partner_id': int,
             'require_signature': bool,

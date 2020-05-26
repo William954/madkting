@@ -71,12 +71,8 @@ class ResPartner(models.Model):
         """
         defaults = {
             'active': True,
-            'customer': True,
-            'supplier': False,
+            'customer_rank': 1,
             'employee': False,
-            'image': None,
-            'image_medium': None,
-            'image_small': None,
             'partner_gid': 0,
             'is_company': False,
             'industry_id': False,
@@ -112,11 +108,12 @@ class ResPartner(models.Model):
 
             if not r['success']:
                 warnings.extend(r['errors'])
-        remove_fields = ['image', 'image_medium', 'image_small']
+        remove_fields = ['image', 'image_medium', 'image_small', 'image_1920',
+                         'image_1024', 'image_512', 'image_256', 'image_128']
         new_customer_data = new_customer.copy_data()[0]
         new_customer_data['id'] = new_customer.id
         for field in remove_fields:
-            new_customer_data.pop(field)
+            new_customer_data.pop(field, None)
         return results.success_result(data=new_customer_data, warnings=warnings)
 
     @api.model
@@ -131,14 +128,17 @@ class ResPartner(models.Model):
         :return:
         """
         country_code = address.pop('country_code', None)
+
+        if not hasattr(self, 'l10n_mx_edi_colony'):
+            address.pop('l10n_mx_edi_colony', None)
+        
+        if not hasattr(self, 'l10n_mx_edi_locality'):
+            address.pop('l10n_mx_edi_locality', None)
+        
         defaults = {
             'active': True,
-            'customer': True,
-            'supplier': False,
+            'customer_rank': 1,
             'employee': False,
-            'image': None,
-            'image_medium': None,
-            'image_small': None,
             'partner_gid': 0,
             'is_company': False,
             'industry_id': False,

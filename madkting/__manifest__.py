@@ -1,23 +1,19 @@
 # -*- coding: utf-8 -*-
 {
-    'name': "madkting",
+    'name': "Yuju",
 
     'summary': """
-        Integration with Madkting platform""",
+        Integration with Yuju's platform""",
 
     'description': """
-        Module integration with madkting software platform.
+        Module integration with Yuju's software platform.
         - Create orders into your odoo software from marketplaces like Mercado Libre, Amazon, etc..
-        - Create products from madkting platform into odoo
-        - Update your stock from odoo to your madkting account.
+        - Create products from Yuju platform into odoo
+        - Update your stock from odoo to your Yuju account.
     """,
 
     'author': "Israel Calderón Aguilar",
-    'website': "http://madkting.com/",
-
-    # Categories can be used to filter modules in modules listing
-    # Check https://github.com/odoo/odoo/blob/12.0/odoo/addons/base/data/ir_module_category_data.xml
-    # for the full list
+    'website': "https://yuju.io/",
     'category': 'Sales',
     'version': '0.1',
 

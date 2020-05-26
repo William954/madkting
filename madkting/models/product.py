@@ -72,6 +72,10 @@ class ProductProduct(models.Model):
                                                           product_type=product_type)
         if not fields_validation['success']:
             return fields_validation
+
+        if 'image' in fields_validation['data']:
+            fields_validation['data']['image_1920'] = fields_validation['data'].pop('image', None)
+
         try:
             product.write(fields_validation['data'])
         except exceptions.AccessError as ae:
@@ -112,7 +116,7 @@ class ProductProduct(models.Model):
                 'product_not_found',
                 'Cannot find the parent product for this variation'
             )
-
+        variation_data['standard_price'] = variation_data.pop('cost', None)
         fields_validation = self.__validate_update_fields(variation_data,
                                                           'variation')
         if not fields_validation['success']:
@@ -122,6 +126,9 @@ class ProductProduct(models.Model):
         variant_attributes = fields_validation['data'].pop('attributes')
         invalid_attributes = list()
         attribute_values = set()
+
+        if 'image' in fields_validation['data']:
+            fields_validation['data']['image_1920'] = fields_validation['data'].pop('image', None)
 
         for attribute, value in variant_attributes.items():
             attribute_values.add(value)
@@ -135,15 +142,19 @@ class ProductProduct(models.Model):
             )
 
         current_variations_set = parent.get_variation_sets()
+        
         if attribute_values in current_variations_set:
-            return results.error_result(
-                'variation_already_exists',
-                'The variation with values: {}. already exists for this product.'.format(', '.join(attribute_values))
-            )
-        # get variation value code
+            for variation in parent.product_variant_ids:
+                if variant_attributes == variation.get_data().get('attributes'):
+                    variation.write(fields_validation['data'])
+                    return results.success_result(variation.get_data())
+
         new_variation_values_ids = list()
+        new_attribute_lines = []
         for attribute, value in variant_attributes.items():
-            value_id = attributes_structure[attribute].get(value)
+            logger.info(attributes_structure)
+            value_id = attributes_structure[attribute].get('values').get(value)
+            logger.info(value_id)
             # if this value_id is not already assigned to this attribute line
             if not value_id:
                 # try to get value from the existing attribute
@@ -171,34 +182,35 @@ class ProductProduct(models.Model):
                             attribute_line.value_ids = [(4, attribute_val.id)]
                         except Exception as ex:
                             logger.exception(ex)
-                # add new value to product template attribute line
-                try:
-                    self.env['product.template.attribute.value'].create({
-                        'product_attribute_value_id': attribute_val.id,
-                        'product_tmpl_id': parent.product_tmpl_id.id
-                    })
-                except Exception as ex:
-                    logger.exception(ex)
-                    return results.error_result(
-                        'template_attribute_line_create_error', str(ex)
-                    )
-                value_id = attribute_val.id
-            new_variation_values_ids.append(value_id)
+
+                new_attribute_lines.append({
+                    'attribute_line_id': attributes_structure[attribute].get('attribute_line_id'),
+                    'value_id': attribute_val.id
+                })
+                
+        attribute_line_ids = [
+                (1, a['attribute_line_id'], {'value_ids': [(4, a['value_id'])]}) for a in new_attribute_lines
+        ]
+        logger.info(attribute_line_ids)
         try:
-            new_variation = self.create({
-                'product_tmpl_id': parent.product_tmpl_id.id,
-                'attribute_value_ids': [(6, 0, new_variation_values_ids)]
-            })
+            parent.product_tmpl_id.write({'attribute_line_ids': attribute_line_ids})
         except Exception as ex:
             logger.exception(ex)
             return results.error_result('variation_create_error', str(ex))
-        else:
-            new_variation.write(fields_validation['data'])
-            new_variation_data = new_variation.copy_data()[0]
-            new_variation_data['id'] = new_variation.id
-            new_variation_data['product_id'] = parent.id
-            new_variation_data['attributes'] = variant_attributes
-            return results.success_result(new_variation_data)
+
+        new_variation_data = None
+
+        for variation in parent.product_variant_ids:
+            if variant_attributes == variation.get_data().get('attributes'):
+                logger.info(fields_validation['data'])
+                variation.write(fields_validation['data'])
+                new_variation_data = variation.get_data()
+                break
+
+        if not new_variation_data:
+            return results.error_result('new_variation_missing', 'The variation was created couldn\'t find it')
+
+        return results.success_result(new_variation_data)
 
     @api.model
     def get_product(self, product_id, only_active=False):
@@ -315,8 +327,9 @@ class ProductProduct(models.Model):
         data['id'] = self.id
         data['product_id'] = self.product_variant_id.id
         data['template_id'] = self.product_tmpl_id.id
+        data['standard_price'] = self.standard_price
         data['attributes'] = dict()
-        for attribute_value in self.attribute_value_ids:
+        for attribute_value in self.product_template_attribute_value_ids:
             attribute_name = attribute_value.attribute_id.name
             data['attributes'][attribute_name] = attribute_value.name
         return data
@@ -409,7 +422,7 @@ class ProductProduct(models.Model):
         variants = list()
         for variation in self.product_variant_ids:
             values = set()
-            for value in variation.attribute_value_ids:
+            for value in variation.product_template_attribute_value_ids:
                 values.add(value.name)
             if values:
                 variants.append(values)
